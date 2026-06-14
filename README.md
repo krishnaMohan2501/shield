@@ -144,8 +144,11 @@ docker run -d --name kong \
 
 Wait ~8 seconds, then verify Kong is up:
 ```bash
-curl -s -o /dev/null -w "%{http_code}" http://localhost:8000/upi/pay
-# 202 or 403 (not 000) means Kong is routing
+curl -s -X POST http://localhost:8000/upi/pay \
+  -H "x-user-id: test" -H "x-device-id: d1" -H "x-amount: 100" -H "x-receiver-vpa: ok@upi"
+# Returns JSON (202 REVIEW or 200 ALLOW) — any JSON response means Kong is routing correctly
+# A 404 means you used GET instead of POST (routes are POST-only)
+# A "000" / connection refused means Kong is not running
 ```
 
 > **Why `--add-host=host.docker.internal:host-gateway`?**
