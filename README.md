@@ -133,7 +133,7 @@ go run .
 ```bash
 docker run -d --name kong \
   -p 8000:8000 -p 8001:8001 \
-  --add-host=host.docker.internal:host-gateway \
+  --add-host=host.docker.internal:192.168.64.1 \
   -e KONG_DATABASE=off \
   -e KONG_DECLARATIVE_CONFIG=/etc/kong/kong.yml \
   -e KONG_PLUGINS=bundled,shield-check \
@@ -141,6 +141,8 @@ docker run -d --name kong \
   -v $(pwd)/../kong-shield/plugins/shield-check:/usr/local/share/lua/5.1/kong/plugins/shield-check \
   kong:3.9
 ```
+
+> **Note on `192.168.64.1`:** This is the Mac's Docker Desktop bridge interface (`bridge100`). It's the IP Docker containers use to reach services running on your Mac. If you see `{"error":"Service temporarily unavailable"}`, find your bridge IP with `ifconfig | grep "192.168.6"` and replace `192.168.64.1` with your value.
 
 Wait ~8 seconds, then verify Kong is up:
 ```bash
