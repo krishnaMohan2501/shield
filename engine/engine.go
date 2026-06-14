@@ -31,6 +31,11 @@ func NewEngine(
 	}
 }
 
+type ruleResult struct {
+	score int
+	rule  string
+}
+
 func (e *Engine) Evaluate(ctx context.Context, req domain.FraudCheckRequest) domain.FraudDecision {
 	if e.blacklist.IsBlacklisted(ctx, req) {
 		return domain.FraudDecision{
@@ -41,17 +46,29 @@ func (e *Engine) Evaluate(ctx context.Context, req domain.FraudCheckRequest) dom
 		}
 	}
 
-	score := 0
+	// Velocity (Redis) and device (Postgres or memory cache) run concurrently.
+	velCh := make(chan ruleResult, 1)
+	devCh := make(chan ruleResult, 1)
+
+	go func() {
+		s, r := e.velocity.Score(ctx, req)
+		velCh <- ruleResult{s, r}
+	}()
+	go func() {
+		s, r := e.device.Score(ctx, req)
+		devCh <- ruleResult{s, r}
+	}()
+
+	vel := <-velCh
+	dev := <-devCh
+
+	score := vel.score + dev.score
 	triggered := []string{}
-
-	if s, rule := e.velocity.Score(ctx, req); s > 0 {
-		score += s
-		triggered = append(triggered, rule)
+	if vel.rule != "" {
+		triggered = append(triggered, vel.rule)
 	}
-
-	if s, rule := e.device.Score(ctx, req); s > 0 {
-		score += s
-		triggered = append(triggered, rule)
+	if dev.rule != "" {
+		triggered = append(triggered, dev.rule)
 	}
 
 	if s, rule := e.amount.Score(req); s > 0 {

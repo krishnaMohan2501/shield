@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"time"
 
 	_ "github.com/lib/pq"
 	"github.com/upi/shield/config"
@@ -23,6 +24,12 @@ func NewPostgres(cfg config.Config) *sql.DB {
 	if err := db.Ping(); err != nil {
 		log.Fatalf("[SHIELD] postgres ping error: %v", err)
 	}
+
+	// Keep a warm pool so requests never wait for connection establishment.
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(25)
+	db.SetConnMaxLifetime(5 * time.Minute)
+	db.SetConnMaxIdleTime(30 * time.Second)
 
 	initSchema(db)
 	return db

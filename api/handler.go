@@ -45,7 +45,7 @@ func (h *Handler) Check(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[SHIELD] encode error: %v", err)
 	}
 
-	h.saveAuditLog(req, decision)
+	go h.saveAuditLog(req, decision)
 }
 
 func (h *Handler) Health(w http.ResponseWriter, _ *http.Request) {

@@ -4,41 +4,68 @@ import (
 	"context"
 	"database/sql"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/upi/shield/domain"
 )
 
+// BlacklistRule keeps an in-memory copy of all active blacklist entries and
+// refreshes it from Postgres every 30 seconds. Hot-path checks are pure map
+// lookups under a read lock — no DB round-trip per request.
 type BlacklistRule struct {
-	db *sql.DB
+	db  *sql.DB
+	mu  sync.RWMutex
+	set map[string]struct{} // "TYPE:value" entries
 }
 
 func NewBlacklistRule(db *sql.DB) *BlacklistRule {
-	return &BlacklistRule{db: db}
+	r := &BlacklistRule{db: db, set: make(map[string]struct{})}
+	r.load() // synchronous initial load so cache is warm before first request
+	go r.refreshLoop()
+	return r
 }
 
-func (r *BlacklistRule) IsBlacklisted(ctx context.Context, req domain.FraudCheckRequest) bool {
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Millisecond)
+func (r *BlacklistRule) load() {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	var exists int
-	err := r.db.QueryRowContext(ctx, `
-		SELECT 1 FROM blacklist
-		WHERE ((type = 'VPA'    AND value = $1)
-		    OR (type = 'IP'     AND value = $2)
-		    OR (type = 'DEVICE' AND value = $3))
-		   AND (expires_at IS NULL OR expires_at > NOW())
-		LIMIT 1
-	`, req.ReceiverVPA, req.IPAddress, req.DeviceID).Scan(&exists)
-
-	if err == sql.ErrNoRows {
-		return false
-	}
+	rows, err := r.db.QueryContext(ctx,
+		`SELECT type, value FROM blacklist WHERE expires_at IS NULL OR expires_at > NOW()`)
 	if err != nil {
-		// Fail-closed: if we can't verify the blacklist, block the request.
-		// A temporary DB error should never allow a known fraudster through.
-		log.Printf("[SHIELD] blacklist query error (blocking): %v", err)
-		return true
+		// Fail-closed: keep the existing (possibly stale) cache intact.
+		log.Printf("[SHIELD] blacklist cache refresh error: %v", err)
+		return
 	}
-	return true
+	defer rows.Close()
+
+	newSet := make(map[string]struct{})
+	for rows.Next() {
+		var typ, val string
+		if rows.Scan(&typ, &val) == nil {
+			newSet[typ+":"+val] = struct{}{}
+		}
+	}
+
+	r.mu.Lock()
+	r.set = newSet
+	r.mu.Unlock()
+	log.Printf("[SHIELD] blacklist cache refreshed: %d entries", len(newSet))
+}
+
+func (r *BlacklistRule) refreshLoop() {
+	t := time.NewTicker(30 * time.Second)
+	defer t.Stop()
+	for range t.C {
+		r.load()
+	}
+}
+
+func (r *BlacklistRule) IsBlacklisted(_ context.Context, req domain.FraudCheckRequest) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	_, vpa := r.set["VPA:"+req.ReceiverVPA]
+	_, ip := r.set["IP:"+req.IPAddress]
+	_, dev := r.set["DEVICE:"+req.DeviceID]
+	return vpa || ip || dev
 }
