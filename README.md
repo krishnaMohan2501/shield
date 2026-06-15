@@ -335,6 +335,12 @@ Read path (synchronous, must be fast):
 
 Shield's architecture after optimisation follows the same model — blacklist in memory, velocity in Redis, device in `sync.Map`. The gap between Shield's 9.5ms p99 and production's ~1–2ms p99 is infrastructure, not design: same-host Redis (not Docker bridge), kernel-bypass networking, and deeper connection pools.
 
+**Further reading:**
+
+- [AI in Payment Processing — Redis](https://redis.io/blog/ai-in-payment-processing/)
+- [How We Built It: Stripe Radar — Stripe Engineering](https://stripe.dev/blog/how-we-built-it-stripe-radar)
+- [Real-Time Fraud Detection — Aerospike](https://aerospike.com/blog/real-time-fraud-detection/)
+
 ---
 
 ## Stopping Everything
